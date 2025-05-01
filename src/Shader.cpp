@@ -1,4 +1,5 @@
 #include "Shader.h"
+#include <iostream> // エラー出力用にインクルードを確認
 
 Shader::Shader(const char* vertexPath, const char* fragmentPath) {
     // シェーダーのコードを読み込む
@@ -67,22 +68,56 @@ void Shader::use() {
     glUseProgram(ID);
 }
 
+// uniformロケーションを取得するヘルパー関数
+GLint Shader::getUniformLocation(const std::string &name) {
+    // キャッシュを確認
+    if (uniformLocationCache.find(name) != uniformLocationCache.end()) {
+        return uniformLocationCache[name];
+    }
+    // キャッシュにない場合は取得してキャッシュする
+    GLint location = glGetUniformLocation(ID, name.c_str());
+    if (location == -1) {
+        // Uniformが見つからない場合のエラーメッセージ（デバッグに役立つ）
+        // 本番環境ではコメントアウトするか、より洗練されたエラー処理を行う
+        // std::cerr << "Warning: uniform '" << name << "' not found in shader program " << ID << std::endl;
+    }
+    uniformLocationCache[name] = location;
+    return location;
+}
+
 void Shader::setBool(const std::string &name, bool value) const {
-    glUniform1i(glGetUniformLocation(ID, name.c_str()), (int)value);
+    // getUniformLocationを使用するように変更 (constメンバー関数内でキャッシュを変更するため、キャッシュマップをmutableにする)
+    GLint location = const_cast<Shader*>(this)->getUniformLocation(name);
+    if (location != -1) {
+        glUniform1i(location, (int)value);
+    }
 }
 
 void Shader::setInt(const std::string &name, int value) const {
-    glUniform1i(glGetUniformLocation(ID, name.c_str()), value);
+    // getUniformLocationを使用するように変更
+    GLint location = const_cast<Shader*>(this)->getUniformLocation(name);
+     if (location != -1) {
+        glUniform1i(location, value);
+    }
 }
 
 void Shader::setFloat(const std::string &name, float value) const {
-    glUniform1f(glGetUniformLocation(ID, name.c_str()), value);
+    // getUniformLocationを使用するように変更
+    GLint location = const_cast<Shader*>(this)->getUniformLocation(name);
+     if (location != -1) {
+        glUniform1f(location, value);
+    }
 }
 
+// setTextureはキャッシュを変更する可能性があるため、constを削除
 void Shader::setTexture(const std::string &name, int unit, GLuint texture) {
-    glActiveTexture(GL_TEXTURE0 + unit);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(glGetUniformLocation(ID, name.c_str()), unit);
+    // getUniformLocationを使用するように変更
+    GLint location = getUniformLocation(name);
+    if (location != -1) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(location, unit);
+    }
 }
 
 void Shader::checkCompileErrors(GLuint shader, std::string type) {
