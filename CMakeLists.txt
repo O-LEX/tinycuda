@@ -7,15 +7,16 @@ add_executable(tinycuda
     src/Shader.cpp
 )
 
+find_package(CUDAToolkit REQUIRED)
+
 set_target_properties(tinycuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_RESOLVE_DEVICE_SYMBOLS ON
     CUDA_ARCHITECTURES "89" 
 )
 
 target_include_directories(tinycuda PRIVATE
     ${CMAKE_SOURCE_DIR}/include
-    "/usr/local/cuda-12.6/targets/x86_64-linux/include" 
+    ${CUDAToolkit_INCLUDE_DIRS}
 )
 
 find_package(OpenGL REQUIRED)
