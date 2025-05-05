@@ -11,7 +11,7 @@ find_package(CUDAToolkit REQUIRED)
 
 set_target_properties(tinycuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES "89" 
+    # CUDA_ARCHITECTURES "89" 
 )
 
 target_include_directories(tinycuda PRIVATE
@@ -23,4 +23,8 @@ find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(GLEW REQUIRED)
 
-target_link_libraries(tinycuda PRIVATE OpenGL::GL glfw GLEW::GLEW)
+target_link_libraries(tinycuda PRIVATE 
+    OpenGL::GL
+    glfw
+    GLEW::GLEW
+)
