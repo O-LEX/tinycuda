@@ -5,6 +5,7 @@ add_executable(tinycuda
     src/main.cpp
     src/tiny.cu
     src/Shader.cpp
+    src/HairLoader.cpp
 )
 
 find_package(CUDAToolkit REQUIRED)
@@ -28,3 +29,5 @@ target_link_libraries(tinycuda PRIVATE
     glfw
     GLEW::GLEW
 )
+
+add_subdirectory(tinyhair)

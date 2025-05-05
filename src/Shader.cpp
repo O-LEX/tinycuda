@@ -1,5 +1,7 @@
 #include "Shader.h"
-#include <iostream> // エラー出力用にインクルードを確認
+#include <fstream>
+#include <sstream>
+#include <iostream>
 
 Shader::Shader(const char* vertexPath, const char* fragmentPath) {
     // シェーダーのコードを読み込む

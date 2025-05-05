@@ -2,9 +2,6 @@
 
 #include <GL/glew.h>
 #include <string>
-#include <fstream>
-#include <sstream>
-#include <iostream>
 #include <unordered_map> // 追加
 
 class Shader {
