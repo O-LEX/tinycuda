@@ -15,7 +15,7 @@ __global__ void dummy_cuda_kernel(
     if (idx < num_total_particles) {
         // Example: Print info for particle 0, only from thread 0 of block 0
         if (idx == 0) {
-            printf("[CUDA Kernel] Particle %d: Pos=(%f, %f, %f), StrandIdx=%d, ParticleInStrandIdx=%d\n",
+            printf("[CUDA dummy_kernel] Particle %d: Pos=(%f, %f, %f), StrandIdx=%d, ParticleInStrandIdx=%d\n",
                    idx,
                    posX[idx],
                    posY[idx],
@@ -23,21 +23,21 @@ __global__ void dummy_cuda_kernel(
                    strand_indices[idx],
                    particle_indices_in_strand[idx]);
         }
-        // Add any other dummy computation here if needed
+        // Dummy computation can be added here if needed
     }
 }
 
 void launch_dummy_kernel(const HairGpuData& gpuData) {
     if (gpuData.num_total_particles == 0) {
-        printf("No particles to process in dummy_kernel.\n");
+        // printf("No particles to process in dummy_kernel.\n"); // Can be noisy
         return;
     }
 
     int threads_per_block = 256;
     int blocks_per_grid = (gpuData.num_total_particles + threads_per_block - 1) / threads_per_block;
 
-    printf("Launching dummy_cuda_kernel with %d blocks and %d threads per block for %d particles.\n",
-           blocks_per_grid, threads_per_block, gpuData.num_total_particles);
+    // printf("Launching dummy_cuda_kernel with %d blocks and %d threads for %d particles.\n",
+    //        blocks_per_grid, threads_per_block, gpuData.num_total_particles); // Can be noisy
 
     dummy_cuda_kernel<<<blocks_per_grid, threads_per_block>>>(
         gpuData.d_posX,
@@ -48,26 +48,23 @@ void launch_dummy_kernel(const HairGpuData& gpuData) {
         gpuData.num_total_particles
     );
 
-    // Check for kernel launch errors
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error after launching dummy_cuda_kernel: %s\n", cudaGetErrorString(err));
-        // It's often good to exit or throw an exception here in real applications
     }
 
-    // Wait for the kernel to complete and check for any asynchronous errors
-    err = cudaDeviceSynchronize();
+    err = cudaDeviceSynchronize(); // Wait and check for async errors
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error during dummy_cuda_kernel execution: %s\n", cudaGetErrorString(err));
     }
-    printf("dummy_cuda_kernel execution finished.\n");
+    printf("dummy_cuda_kernel execution finished.\n"); // Keep this for confirmation
 }
 
 __global__ void convert_pos_to_vbo_kernel(
     const float* posX,
     const float* posY,
     const float* posZ,
-    float* vbo_data,
+    float* vbo_data, // Output: SoA (xyz, xyz, ...)
     int num_total_particles)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -81,19 +78,19 @@ __global__ void convert_pos_to_vbo_kernel(
 
 void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpuData, float* d_vbo_data) {
     if (gpuData.num_total_particles == 0) {
-        printf("No particles to process in convert_pos_to_vbo_kernel.\n");
+        // printf("No particles to process in convert_pos_to_vbo_kernel.\n"); // Can be noisy
         return;
     }
     if (d_vbo_data == nullptr) {
-        fprintf(stderr, "Error: Output VBO data pointer is null.\n");
+        fprintf(stderr, "Error: Output VBO data pointer (d_vbo_data) is null in launch_convert_pos_to_vbo_kernel.\n");
         return;
     }
 
     int threads_per_block = 256;
     int blocks_per_grid = (gpuData.num_total_particles + threads_per_block - 1) / threads_per_block;
 
-    printf("Launching convert_pos_to_vbo_kernel with %d blocks and %d threads per block for %d particles.\n",
-           blocks_per_grid, threads_per_block, gpuData.num_total_particles);
+    // printf("Launching convert_pos_to_vbo_kernel with %d blocks and %d threads for %d particles.\n",
+    //        blocks_per_grid, threads_per_block, gpuData.num_total_particles); // Can be noisy
 
     convert_pos_to_vbo_kernel<<<blocks_per_grid, threads_per_block>>>(
         gpuData.d_posX,
@@ -103,14 +100,14 @@ void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpuData, float* d_vbo_d
         gpuData.num_total_particles
     );
 
-    cudaError_t err = cudaGetLastError();
+    cudaError_t err = cudaGetLastError(); // Check for launch errors
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error after launching convert_pos_to_vbo_kernel: %s\n", cudaGetErrorString(err));
     }
 
-    err = cudaDeviceSynchronize();
+    err = cudaDeviceSynchronize(); // Wait for kernel to complete and check for asynchronous errors
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error during convert_pos_to_vbo_kernel execution: %s\n", cudaGetErrorString(err));
     }
-    printf("convert_pos_to_vbo_kernel execution finished.\n");
+    printf("convert_pos_to_vbo_kernel execution finished.\n"); // Keep this for confirmation
 }

@@ -25,9 +25,16 @@ target_include_directories(cudahair_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} # For dummy_kernel.cuh
 )
 
+find_package(OpenGL REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(GLEW REQUIRED)
+
 # Link libraries
 target_link_libraries(cudahair_test PRIVATE
     CUDA::cudart
+    OpenGL::GL
+    glfw
+    GLEW::GLEW
 )
 
 # Optional: Specify CUDA architecture if needed, e.g., for sm_75
