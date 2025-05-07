@@ -31,3 +31,4 @@ target_link_libraries(tinycuda PRIVATE
 )
 
 add_subdirectory(tinyhair)
+add_subdirectory(cudahair)
