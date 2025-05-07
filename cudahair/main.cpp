@@ -1,4 +1,4 @@
-#include "HairDataManager.h"
+#include "HairSimulator.h"
 #include "HairLoader.h"
 #include "dummy_kernel.cuh" // Include the dummy kernel header
 #include <iostream>
@@ -19,7 +19,7 @@ int main() {
     }
 
     // Create HairDataManager instance
-    HairDataManager dataManager;
+    HairSimulator dataManager;
 
     // Upload data to GPU
     try {
@@ -57,6 +57,41 @@ int main() {
         std::cout << "\nLaunching CUDA kernel..." << std::endl;
         launch_dummy_kernel(gpuData);
         std::cout << "CUDA kernel launch sequence finished.\n" << std::endl;
+
+        // --- Test VBO Conversion Kernel ---
+        if (gpuData.num_total_particles > 0) {
+            float* d_vbo_data = nullptr;
+            size_t vbo_size = gpuData.num_total_particles * 3 * sizeof(float);
+            cudaError_t err_alloc = cudaMalloc(reinterpret_cast<void**>(&d_vbo_data), vbo_size);
+            if (err_alloc != cudaSuccess) {
+                std::cerr << "Failed to allocate d_vbo_data on GPU: " << cudaGetErrorString(err_alloc) << std::endl;
+            } else {
+                std::cout << "\nLaunching VBO conversion kernel..." << std::endl;
+                launch_convert_pos_to_vbo_kernel(gpuData, d_vbo_data);
+                std::cout << "VBO conversion kernel launch sequence finished.\n" << std::endl;
+
+                // Optional: Verify by copying some data back
+                int num_particles_to_check = std::min(5, gpuData.num_total_particles);
+                if (num_particles_to_check > 0) {
+                    std::vector<float> h_vbo_data_check(num_particles_to_check * 3);
+                    cudaError_t err_copy = cudaMemcpy(h_vbo_data_check.data(), d_vbo_data, num_particles_to_check * 3 * sizeof(float), cudaMemcpyDeviceToHost);
+                    if (err_copy != cudaSuccess) {
+                        std::cerr << "Failed to copy VBO data back to host for verification: " << cudaGetErrorString(err_copy) << std::endl;
+                    } else {
+                        std::cout << "\nFirst " << num_particles_to_check << " particles in VBO format (on host):" << std::endl;
+                        for (int i = 0; i < num_particles_to_check; ++i) {
+                            std::cout << "  Particle " << i << ": ("
+                                      << h_vbo_data_check[i * 3 + 0] << ", "
+                                      << h_vbo_data_check[i * 3 + 1] << ", "
+                                      << h_vbo_data_check[i * 3 + 2] << ")" << std::endl;
+                        }
+                    }
+                }
+                cudaFree(d_vbo_data);
+                std::cout << "Freed d_vbo_data." << std::endl;
+            }
+        }
+        // --- End Test VBO Conversion Kernel ---
 
     } catch (const std::exception& e) {
         std::cerr << "Error in HairDataManager or Kernel Launch: " << e.what() << std::endl;

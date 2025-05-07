@@ -15,7 +15,7 @@ find_package(CUDAToolkit REQUIRED)
 add_executable(cudahair_test
     main.cpp
     dummy_kernel.cu # Add the .cu file
-    ../src/HairDataManager.cpp
+    ../src/HairSimulator.cpp
     ../src/HairLoader.cpp
 )
 
