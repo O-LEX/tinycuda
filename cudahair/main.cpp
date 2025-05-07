@@ -67,8 +67,8 @@ int main() {
 
         HairSimulator hair_sim;
         try {
-            // Initialize simulator, setting true for OpenGL interop
-            if (!hair_sim.initialize(loader.strands, true)) {
+            // Initialize simulator (OpenGL interop is now always enabled)
+            if (!hair_sim.initialize(loader.strands)) { // Second parameter removed
                 std::cerr << "Failed to initialize HairSimulator." << std::endl;
                 shutdown_opengl_context();
                 return 1;

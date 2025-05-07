@@ -66,22 +66,12 @@ void HairSimulator::deleteGLVbo() {
 }
 
 
-bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_strands, bool setup_opengl_interop) {
+bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_strands) {
     releaseResources(); // Clear any existing data
 
-    m_useOpenGLInterop = setup_opengl_interop;
-
-    if (raw_strands.empty()) {
-        return true; // Successfully initialized with no data
-    }
-
-    // 1. Calculate total particles and prepare host SoA data
+    // Calculate total particles and prepare host SoA data
     for (const auto& strand : raw_strands) {
         m_simData.num_total_particles += strand.size();
-    }
-
-    if (m_simData.num_total_particles == 0) {
-        return true; // Successfully initialized with no particles
     }
 
     std::vector<float> h_posX(m_simData.num_total_particles);
@@ -104,7 +94,7 @@ bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_stran
         }
     }
 
-    // 2. Allocate GPU memory for simulation data and copy from host
+    // Allocate GPU memory for simulation data and copy from host
     cudaError_t err;
     auto allocate_and_copy = [&](void** devPtr, const void* hostPtr, size_t size, const char* name) {
         err = cudaMalloc(devPtr, size);
@@ -131,8 +121,8 @@ bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_stran
         return false; // Indicate initialization failure
     }
 
-    // 3. If using OpenGL interop, create VBO and register with CUDA
-    if (m_useOpenGLInterop && m_simData.num_total_particles > 0) {
+    // 3. Create VBO and register with CUDA (assuming OpenGL interop is always used)
+    if (m_simData.num_total_particles > 0) { // Condition simplified as OpenGL interop is always on
         GLenum glErr;
         size_t vbo_byte_size = m_simData.num_total_particles * 3 * sizeof(float);
 
@@ -163,7 +153,7 @@ bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_stran
 }
 
 float* HairSimulator::mapVboForWriting() {
-    if (!m_useOpenGLInterop || !m_vboCudaResource || m_simData.num_total_particles == 0) {
+    if (!m_vboCudaResource || m_simData.num_total_particles == 0) {
         return nullptr;
     }
 
@@ -193,7 +183,7 @@ float* HairSimulator::mapVboForWriting() {
 }
 
 void HairSimulator::unmapVbo() {
-    if (!m_useOpenGLInterop || !m_vboCudaResource) {
+    if (!m_vboCudaResource) {
         return;
     }
     cudaError_t cudaErr = cudaGraphicsUnmapResources(1, &m_vboCudaResource, 0);
