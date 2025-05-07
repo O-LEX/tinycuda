@@ -7,7 +7,7 @@
 // Forward declaration for HairSimulator to use HairGpuData
 class HairSimulator;
 
-struct HairGpuData {
+struct GpuData {
     float *d_posX = nullptr;
     float *d_posY = nullptr;
     float *d_posZ = nullptr;
@@ -23,20 +23,14 @@ public:
 
     bool initialize(const std::vector<std::vector<float3>>& raw_strands);
 
-    float* mapVboForWriting();
-
-    // Unmaps the VBO after CUDA is done writing.
+    float* mapVbo();
     void unmapVbo();
 
-    // Provides read-only access to the simulation data.
-    const HairGpuData& getSimulationData() const; // Changed from HairGpuSimData
-
-    // Provides read-only access to the OpenGL VBO ID (for rendering).
-    // Returns 0 if VBO is not initialized.
+    const GpuData& getGpuData() const;
     unsigned int getVboId() const;
 
 private:
-    HairGpuData m_simData;          // CUDA simulation data (type changed from HairGpuSimData)
+    GpuData m_GpuData;
 
     // OpenGL Interop related resources (managed directly by HairSimulator)
     unsigned int m_vboId = 0;                           // OpenGL VBO ID
@@ -44,9 +38,5 @@ private:
 
     // Helper to release all owned resources (CUDA memory and VBO-related resources)
     void releaseResources();
-    
-    // Internal helper for VBO cleanup (called by releaseResources)
-    // Assumes OpenGL context is active if called for glDeleteBuffers
-    void unmapAndUnregisterVbo(); 
-    void deleteGLVbo(); 
+    void deleteVbo(); 
 };
