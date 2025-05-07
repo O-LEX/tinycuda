@@ -1,21 +1,23 @@
 #pragma once
 
 #include <vector>
-#include <cuda_runtime.h> // For float3 and CUDA API
-#include <cuda_gl_interop.h> // For CUDA-OpenGL interop
+#include <cuda_runtime.h>
+#include <cuda_gl_interop.h> // For cudaGraphicsResource
 
-struct HairGpuData {
+// Forward declaration for HairSimulator to use HairGpuData
+class HairSimulator;
+
+// Pure CUDA simulation data
+struct HairGpuData { // Renamed back from HairGpuSimData
     float *d_posX = nullptr;
     float *d_posY = nullptr;
     float *d_posZ = nullptr;
-    int *d_strand_indices = nullptr;          // Index of the strand each particle belongs to
-    int *d_particle_indices_in_strand = nullptr; // Index of the particle within its strand
+    int *d_strand_indices = nullptr;
+    int *d_particle_indices_in_strand = nullptr;
+    // Add other simulation-specific data pointers here if needed (e.g., velocity, mass)
     int num_total_particles = 0;
-
-    // OpenGL VBO related data
-    unsigned int vbo_id = 0; // OpenGL VBO ID
-    float* d_vbo_buffer_ptr = nullptr; // CUDA device pointer to the mapped VBO buffer (valid only when mapped)
-    struct cudaGraphicsResource *vbo_cuda_resource = nullptr; // CUDA graphics resource for VBO
+    // int num_total_strands = 0; // If needed for simulation logic
+    // release() method removed as per user request
 };
 
 class HairSimulator
@@ -24,20 +26,36 @@ public:
     HairSimulator();
     ~HairSimulator();
 
-    // Takes the strand data (AoS) and prepares SoA data on the GPU
-    void upload_to_gpu(const std::vector<std::vector<float3>>& all_strands);
+    // Initializes simulation data on GPU and optionally sets up OpenGL interop for VBO
+    bool initialize(const std::vector<std::vector<float3>>& raw_strands, bool setup_opengl_interop);
 
-    // Getter for the GPU data structure
-    const HairGpuData& get_gpu_data() const;
+    // Maps the VBO for writing from CUDA and returns the device pointer.
+    // Returns nullptr if not using OpenGL interop or if mapping fails.
+    float* mapVboForWriting();
 
-    // Manages VBO creation, mapping to CUDA, and populating it with particle positions
-    void create_and_populate_vbo();
+    // Unmaps the VBO after CUDA is done writing.
+    void unmapVbo();
+
+    // Provides read-only access to the simulation data.
+    const HairGpuData& getSimulationData() const; // Changed from HairGpuSimData
+
+    // Provides read-only access to the OpenGL VBO ID (for rendering).
+    // Returns 0 if VBO is not initialized.
+    unsigned int getVboId() const;
 
 private:
-    HairGpuData gpu_data_;
+    HairGpuData m_simData;          // CUDA simulation data (type changed from HairGpuSimData)
+    bool m_useOpenGLInterop = false;
 
-    // Helper to release GPU memory (including VBO-related resources)
-    void free_gpu_memory();
-    // Helper to specifically handle VBO cleanup (unmapping, unregistering, deleting GL buffer)
-    void unmap_and_delete_vbo();
+    // OpenGL Interop related resources (managed directly by HairSimulator)
+    unsigned int m_vboId = 0;                           // OpenGL VBO ID
+    struct cudaGraphicsResource *m_vboCudaResource = nullptr; // CUDA graphics resource for VBO
+
+    // Helper to release all owned resources (CUDA memory and VBO-related resources)
+    void releaseResources();
+    
+    // Internal helper for VBO cleanup (called by releaseResources)
+    // Assumes OpenGL context is active if called for glDeleteBuffers
+    void unmapAndUnregisterVbo(); 
+    void deleteGLVbo(); 
 };

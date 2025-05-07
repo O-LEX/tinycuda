@@ -2,7 +2,7 @@
 #include "HairSimulator.h" // For HairGpuData
 
 // Wrapper function to launch the dummy CUDA kernel
-void launch_dummy_kernel(const HairGpuData& gpuData);
+void launch_dummy_kernel(const HairGpuData& gpu_data);
 
 // convert d_pos to vbo
-void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpuData, float* d_vbo_data);
+void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpu_data, float* d_vbo_data);

@@ -27,25 +27,25 @@ __global__ void dummy_cuda_kernel(
     }
 }
 
-void launch_dummy_kernel(const HairGpuData& gpuData) {
-    if (gpuData.num_total_particles == 0) {
+void launch_dummy_kernel(const HairGpuData& gpu_data) { // Changed HairGpuSimData to gpu_data (HairGpuData type)
+    if (gpu_data.num_total_particles == 0) {
         // printf("No particles to process in dummy_kernel.\n"); // Can be noisy
         return;
     }
 
     int threads_per_block = 256;
-    int blocks_per_grid = (gpuData.num_total_particles + threads_per_block - 1) / threads_per_block;
+    int blocks_per_grid = (gpu_data.num_total_particles + threads_per_block - 1) / threads_per_block;
 
     // printf("Launching dummy_cuda_kernel with %d blocks and %d threads for %d particles.\n",
-    //        blocks_per_grid, threads_per_block, gpuData.num_total_particles); // Can be noisy
+    //        blocks_per_grid, threads_per_block, gpu_data.num_total_particles); // Can be noisy
 
     dummy_cuda_kernel<<<blocks_per_grid, threads_per_block>>>(
-        gpuData.d_posX,
-        gpuData.d_posY,
-        gpuData.d_posZ,
-        gpuData.d_strand_indices,
-        gpuData.d_particle_indices_in_strand,
-        gpuData.num_total_particles
+        gpu_data.d_posX,
+        gpu_data.d_posY,
+        gpu_data.d_posZ,
+        gpu_data.d_strand_indices,
+        gpu_data.d_particle_indices_in_strand,
+        gpu_data.num_total_particles
     );
 
     cudaError_t err = cudaGetLastError();
@@ -76,8 +76,8 @@ __global__ void convert_pos_to_vbo_kernel(
     }
 }
 
-void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpuData, float* d_vbo_data) {
-    if (gpuData.num_total_particles == 0) {
+void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpu_data, float* d_vbo_data) { // Changed HairGpuSimData to gpu_data (HairGpuData type)
+    if (gpu_data.num_total_particles == 0) {
         // printf("No particles to process in convert_pos_to_vbo_kernel.\n"); // Can be noisy
         return;
     }
@@ -87,17 +87,17 @@ void launch_convert_pos_to_vbo_kernel(const HairGpuData& gpuData, float* d_vbo_d
     }
 
     int threads_per_block = 256;
-    int blocks_per_grid = (gpuData.num_total_particles + threads_per_block - 1) / threads_per_block;
+    int blocks_per_grid = (gpu_data.num_total_particles + threads_per_block - 1) / threads_per_block;
 
     // printf("Launching convert_pos_to_vbo_kernel with %d blocks and %d threads for %d particles.\n",
-    //        blocks_per_grid, threads_per_block, gpuData.num_total_particles); // Can be noisy
+    //        blocks_per_grid, threads_per_block, gpu_data.num_total_particles); // Can be noisy
 
     convert_pos_to_vbo_kernel<<<blocks_per_grid, threads_per_block>>>(
-        gpuData.d_posX,
-        gpuData.d_posY,
-        gpuData.d_posZ,
+        gpu_data.d_posX,
+        gpu_data.d_posY,
+        gpu_data.d_posZ,
         d_vbo_data,
-        gpuData.num_total_particles
+        gpu_data.num_total_particles
     );
 
     cudaError_t err = cudaGetLastError(); // Check for launch errors

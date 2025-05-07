@@ -54,10 +54,9 @@ int main() {
 
     init_opengl_context();
 
-    { // Scope for HairLoader and HairSimulator to ensure destructors are called before OpenGL shutdown
+    { 
         HairLoader loader;
         try {
-            // Adjust path as needed.
             loader.load("../data/strands00001.data");
             std::cout << "Successfully loaded hair data. Number of strands: " << loader.strands.size() << std::endl;
         } catch (const std::exception& e) {
@@ -68,36 +67,35 @@ int main() {
 
         HairSimulator hair_sim;
         try {
-            hair_sim.upload_to_gpu(loader.strands);
-            const HairGpuData& gpu_data_ref = hair_sim.get_gpu_data();
-            std::cout << "Successfully uploaded hair particle data to GPU. Total particles: " << gpu_data_ref.num_total_particles << std::endl;
+            // Initialize simulator, setting true for OpenGL interop
+            if (!hair_sim.initialize(loader.strands, true)) {
+                std::cerr << "Failed to initialize HairSimulator." << std::endl;
+                shutdown_opengl_context();
+                return 1;
+            }
 
-            if (gpu_data_ref.num_total_particles > 0) {
-                // Optional: Display first particle's data for verification
-                // std::vector<float> posX(1), posY(1), posZ(1);
-                // std::vector<int> strandIdx(1), particleInStrandIdx(1);
-                // cudaMemcpy(posX.data(), gpu_data_ref.d_posX, sizeof(float), cudaMemcpyDeviceToHost);
-                // cudaMemcpy(posY.data(), gpu_data_ref.d_posY, sizeof(float), cudaMemcpyDeviceToHost);
-                // cudaMemcpy(posZ.data(), gpu_data_ref.d_posZ, sizeof(float), cudaMemcpyDeviceToHost);
-                // cudaMemcpy(strandIdx.data(), gpu_data_ref.d_strand_indices, sizeof(int), cudaMemcpyDeviceToHost);
-                // cudaMemcpy(particleInStrandIdx.data(), gpu_data_ref.d_particle_indices_in_strand, sizeof(int), cudaMemcpyDeviceToHost);
-                // std::cout << "First particle data on GPU (host copy):\n"
-                //           << "  Position: (" << posX[0] << ", " << posY[0] << ", " << posZ[0] << ")\n"
-                //           << "  Strand Index: " << strandIdx[0] << "\n"
-                //           << "  Particle Index in Strand: " << particleInStrandIdx[0] << std::endl;
+            const HairGpuData& sim_data_ref = hair_sim.getSimulationData();
+            std::cout << "Successfully initialized hair particle data on GPU. Total particles: " << sim_data_ref.num_total_particles << std::endl;
 
+            if (sim_data_ref.num_total_particles > 0) {
                 std::cout << "\nLaunching dummy CUDA kernel..." << std::endl;
-                launch_dummy_kernel(gpu_data_ref);
-                // The dummy kernel now prints its own completion message.
+                launch_dummy_kernel(sim_data_ref); 
 
-                std::cout << "\nAttempting to create and populate VBO via CUDA-OpenGL interop..." << std::endl;
-                hair_sim.create_and_populate_vbo();
+                std::cout << "\nAttempting to populate VBO via CUDA-OpenGL interop..." << std::endl;
+                float* d_vbo_ptr = hair_sim.mapVboForWriting();
+                if (d_vbo_ptr) {
+                    std::cout << "HairSimulator: Launching kernel to populate VBO ID: " << hair_sim.getVboId()
+                              << " with " << sim_data_ref.num_total_particles << " particles." << std::endl;
+                    launch_convert_pos_to_vbo_kernel(sim_data_ref, d_vbo_ptr);
+                    hair_sim.unmapVbo();
+                    std::cout << "HairSimulator: VBO (ID: " << hair_sim.getVboId() << ") populated successfully." << std::endl;
 
-                if (gpu_data_ref.vbo_id != 0) {
-                    std::cout << "OpenGL VBO (ID: " << gpu_data_ref.vbo_id << ") created and populated successfully." << std::endl;
-                    std::cout << "This VBO contains " << gpu_data_ref.num_total_particles << " particle positions (XYZ format)." << std::endl;
-                } else if (gpu_data_ref.num_total_particles > 0) {
-                    std::cerr << "VBO creation/population failed or was skipped." << std::endl;
+                    if (hair_sim.getVboId() != 0) {
+                        std::cout << "OpenGL VBO (ID: " << hair_sim.getVboId() << ") created and populated successfully." << std::endl;
+                        std::cout << "This VBO contains " << sim_data_ref.num_total_particles << " particle positions (XYZ format)." << std::endl;
+                    }
+                } else if (sim_data_ref.num_total_particles > 0) { // Check if mapping was expected
+                    std::cerr << "VBO mapping failed or was skipped unexpectedly." << std::endl;
                 }
             } else {
                 std::cout << "No particles loaded; skipping CUDA kernel launch and VBO creation." << std::endl;
@@ -105,14 +103,12 @@ int main() {
 
         } catch (const std::exception& e) {
             std::cerr << "Error during HairSimulator operations or kernel launch: " << e.what() << std::endl;
-            // hair_sim destructor called automatically at scope end
             shutdown_opengl_context();
             return 1;
         }
 
         std::cout << "\nHair simulation test completed." << std::endl;
-        // hair_sim destructor called here as it goes out of scope
-    } // End of scope for HairLoader and HairSimulator
+    } 
 
     shutdown_opengl_context();
     return 0;

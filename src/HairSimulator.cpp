@@ -15,80 +15,84 @@
 // and GLEW to be initialized. This is handled in main.cpp.
 
 HairSimulator::HairSimulator() {
-    // gpu_data_ members are initialized by their default member initializers
+    // Members are initialized by their default initializers (nullptr, 0, false)
 }
 
 HairSimulator::~HairSimulator() {
-    free_gpu_memory();
+    releaseResources();
 }
 
-void HairSimulator::unmap_and_delete_vbo() {
-    if (gpu_data_.vbo_cuda_resource) {
-        // Resource must be unmapped before unregistering.
-        // cudaGraphicsUnregisterResource should handle unmapping if mapped by this context.
-        cudaError_t err = cudaGraphicsUnregisterResource(gpu_data_.vbo_cuda_resource);
-        if (err != cudaSuccess) {
-            std::cerr << "HairSimulator: Warning - Failed to unregister VBO CUDA resource: " << cudaGetErrorString(err) << std::endl;
-        }
-        gpu_data_.vbo_cuda_resource = nullptr;
-    }
+void HairSimulator::releaseResources() {
+    // Release CUDA simulation buffers directly as HairGpuData no longer has a release() method
+    if (m_simData.d_posX) { cudaFree(m_simData.d_posX); m_simData.d_posX = nullptr; }
+    if (m_simData.d_posY) { cudaFree(m_simData.d_posY); m_simData.d_posY = nullptr; }
+    if (m_simData.d_posZ) { cudaFree(m_simData.d_posZ); m_simData.d_posZ = nullptr; }
+    if (m_simData.d_strand_indices) { cudaFree(m_simData.d_strand_indices); m_simData.d_strand_indices = nullptr; }
+    if (m_simData.d_particle_indices_in_strand) { cudaFree(m_simData.d_particle_indices_in_strand); m_simData.d_particle_indices_in_strand = nullptr; }
+    m_simData.num_total_particles = 0;
 
-    if (gpu_data_.vbo_id != 0) {
-        // Requires an active OpenGL context
-        glDeleteBuffers(1, &gpu_data_.vbo_id);
+    unmapAndUnregisterVbo();
+    deleteGLVbo(); 
+}
+
+void HairSimulator::unmapAndUnregisterVbo() {
+    if (m_vboCudaResource) {
+        // According to CUDA docs, resource should be unmapped before unregistering.
+        // cudaGraphicsUnmapResources might have been called in unmapVbo(), but an extra call is safe.
+        // cudaGraphicsUnregisterResource itself should handle unmapping if the resource was mapped by this context.
+        cudaError_t err_unmap = cudaGraphicsUnmapResources(1, &m_vboCudaResource, 0); // Attempt unmap just in case
+        if (err_unmap != cudaSuccess && err_unmap != cudaErrorNotMapped) { // Ignore if not mapped
+             std::cerr << "HairSimulator: Warning - Failed to unmap VBO resource during unregister: " << cudaGetErrorString(err_unmap) << std::endl;
+        }
+
+        cudaError_t err_unregister = cudaGraphicsUnregisterResource(m_vboCudaResource);
+        if (err_unregister != cudaSuccess) {
+            std::cerr << "HairSimulator: Warning - Failed to unregister VBO CUDA resource: " << cudaGetErrorString(err_unregister) << std::endl;
+        }
+        m_vboCudaResource = nullptr;
+    }
+}
+
+void HairSimulator::deleteGLVbo() {
+    if (m_vboId != 0) {
+        // IMPORTANT: Requires an active OpenGL context
+        glDeleteBuffers(1, &m_vboId);
         GLenum glErr = glGetError();
         if (glErr != GL_NO_ERROR) {
-            std::cerr << "HairSimulator: Warning - OpenGL error during glDeleteBuffers for VBO ID " << gpu_data_.vbo_id << ": " << reinterpret_cast<const char*>(glewGetErrorString(glErr)) << std::endl;
+            std::cerr << "HairSimulator: Warning - OpenGL error during glDeleteBuffers for VBO ID " << m_vboId << ": " << reinterpret_cast<const char*>(glewGetErrorString(glErr)) << std::endl;
         }
-        gpu_data_.vbo_id = 0;
+        m_vboId = 0;
     }
-    gpu_data_.d_vbo_buffer_ptr = nullptr;
 }
 
-void HairSimulator::free_gpu_memory() {
-    // Free standard CUDA particle data
-    if (gpu_data_.d_posX) cudaFree(gpu_data_.d_posX);
-    if (gpu_data_.d_posY) cudaFree(gpu_data_.d_posY);
-    if (gpu_data_.d_posZ) cudaFree(gpu_data_.d_posZ);
-    if (gpu_data_.d_strand_indices) cudaFree(gpu_data_.d_strand_indices);
-    if (gpu_data_.d_particle_indices_in_strand) cudaFree(gpu_data_.d_particle_indices_in_strand);
-    
-    gpu_data_.d_posX = nullptr;
-    gpu_data_.d_posY = nullptr;
-    gpu_data_.d_posZ = nullptr;
-    gpu_data_.d_strand_indices = nullptr;
-    gpu_data_.d_particle_indices_in_strand = nullptr;
 
-    // Free VBO related resources
-    unmap_and_delete_vbo();
-    gpu_data_.num_total_particles = 0;
-}
+bool HairSimulator::initialize(const std::vector<std::vector<float3>>& raw_strands, bool setup_opengl_interop) {
+    releaseResources(); // Clear any existing data
 
-void HairSimulator::upload_to_gpu(const std::vector<std::vector<float3>>& all_strands) {
-    free_gpu_memory(); // Clear existing data and VBOs
+    m_useOpenGLInterop = setup_opengl_interop;
 
-    if (all_strands.empty()) {
-        return;
+    if (raw_strands.empty()) {
+        return true; // Successfully initialized with no data
     }
 
-    for (const auto& strand : all_strands) {
-        gpu_data_.num_total_particles += strand.size();
+    // 1. Calculate total particles and prepare host SoA data
+    for (const auto& strand : raw_strands) {
+        m_simData.num_total_particles += strand.size();
     }
 
-    if (gpu_data_.num_total_particles == 0) {
-        return; // No particles to upload
+    if (m_simData.num_total_particles == 0) {
+        return true; // Successfully initialized with no particles
     }
 
-    // Host SoA buffers
-    std::vector<float> h_posX(gpu_data_.num_total_particles);
-    std::vector<float> h_posY(gpu_data_.num_total_particles);
-    std::vector<float> h_posZ(gpu_data_.num_total_particles);
-    std::vector<int> h_strand_indices(gpu_data_.num_total_particles);
-    std::vector<int> h_particle_indices_in_strand(gpu_data_.num_total_particles);
+    std::vector<float> h_posX(m_simData.num_total_particles);
+    std::vector<float> h_posY(m_simData.num_total_particles);
+    std::vector<float> h_posZ(m_simData.num_total_particles);
+    std::vector<int> h_strand_indices(m_simData.num_total_particles);
+    std::vector<int> h_particle_indices_in_strand(m_simData.num_total_particles);
 
     int current_particle_idx = 0;
-    for (int strand_idx = 0; strand_idx < all_strands.size(); ++strand_idx) {
-        const auto& strand = all_strands[strand_idx];
+    for (int strand_idx = 0; strand_idx < raw_strands.size(); ++strand_idx) {
+        const auto& strand = raw_strands[strand_idx];
         for (int particle_in_strand_idx = 0; particle_in_strand_idx < strand.size(); ++particle_in_strand_idx) {
             const auto& particle = strand[particle_in_strand_idx];
             h_posX[current_particle_idx] = particle.x;
@@ -100,119 +104,116 @@ void HairSimulator::upload_to_gpu(const std::vector<std::vector<float3>>& all_st
         }
     }
 
-    // Allocate GPU memory
+    // 2. Allocate GPU memory for simulation data and copy from host
     cudaError_t err;
-    auto allocate_and_check = [&](void** devPtr, size_t size, const char* name) {
+    auto allocate_and_copy = [&](void** devPtr, const void* hostPtr, size_t size, const char* name) {
         err = cudaMalloc(devPtr, size);
         if (err != cudaSuccess) {
-            free_gpu_memory();
+            releaseResources(); // Cleanup partially allocated resources
             throw std::runtime_error("Failed to allocate " + std::string(name) + " on GPU: " + cudaGetErrorString(err));
         }
-    };
-
-    allocate_and_check(reinterpret_cast<void**>(&gpu_data_.d_posX), gpu_data_.num_total_particles * sizeof(float), "d_posX");
-    allocate_and_check(reinterpret_cast<void**>(&gpu_data_.d_posY), gpu_data_.num_total_particles * sizeof(float), "d_posY");
-    allocate_and_check(reinterpret_cast<void**>(&gpu_data_.d_posZ), gpu_data_.num_total_particles * sizeof(float), "d_posZ");
-    allocate_and_check(reinterpret_cast<void**>(&gpu_data_.d_strand_indices), gpu_data_.num_total_particles * sizeof(int), "d_strand_indices");
-    allocate_and_check(reinterpret_cast<void**>(&gpu_data_.d_particle_indices_in_strand), gpu_data_.num_total_particles * sizeof(int), "d_particle_indices_in_strand");
-
-    // Copy data to GPU
-    auto copy_and_check = [&](void* dst, const void* src, size_t size, const char* name) {
-        err = cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice);
+        err = cudaMemcpy(*devPtr, hostPtr, size, cudaMemcpyHostToDevice);
         if (err != cudaSuccess) {
-            free_gpu_memory();
+            releaseResources();
             throw std::runtime_error("Failed to copy " + std::string(name) + " to GPU: " + cudaGetErrorString(err));
         }
     };
 
-    copy_and_check(gpu_data_.d_posX, h_posX.data(), gpu_data_.num_total_particles * sizeof(float), "posX");
-    copy_and_check(gpu_data_.d_posY, h_posY.data(), gpu_data_.num_total_particles * sizeof(float), "posY");
-    copy_and_check(gpu_data_.d_posZ, h_posZ.data(), gpu_data_.num_total_particles * sizeof(float), "posZ");
-    copy_and_check(gpu_data_.d_strand_indices, h_strand_indices.data(), gpu_data_.num_total_particles * sizeof(int), "strand_indices");
-    copy_and_check(gpu_data_.d_particle_indices_in_strand, h_particle_indices_in_strand.data(), gpu_data_.num_total_particles * sizeof(int), "particle_indices_in_strand");
+    try {
+        allocate_and_copy(reinterpret_cast<void**>(&m_simData.d_posX), h_posX.data(), m_simData.num_total_particles * sizeof(float), "d_posX");
+        allocate_and_copy(reinterpret_cast<void**>(&m_simData.d_posY), h_posY.data(), m_simData.num_total_particles * sizeof(float), "d_posY");
+        allocate_and_copy(reinterpret_cast<void**>(&m_simData.d_posZ), h_posZ.data(), m_simData.num_total_particles * sizeof(float), "d_posZ");
+        allocate_and_copy(reinterpret_cast<void**>(&m_simData.d_strand_indices), h_strand_indices.data(), m_simData.num_total_particles * sizeof(int), "d_strand_indices");
+        allocate_and_copy(reinterpret_cast<void**>(&m_simData.d_particle_indices_in_strand), h_particle_indices_in_strand.data(), m_simData.num_total_particles * sizeof(int), "d_particle_indices_in_strand");
+    } catch (const std::exception& e) {
+        // releaseResources() is called by the helper on error, so just rethrow or handle
+        std::cerr << "Error during GPU data allocation/copy: " << e.what() << std::endl;
+        return false; // Indicate initialization failure
+    }
+
+    // 3. If using OpenGL interop, create VBO and register with CUDA
+    if (m_useOpenGLInterop && m_simData.num_total_particles > 0) {
+        GLenum glErr;
+        size_t vbo_byte_size = m_simData.num_total_particles * 3 * sizeof(float);
+
+        glGenBuffers(1, &m_vboId);
+        glErr = glGetError();
+        if (glErr != GL_NO_ERROR || m_vboId == 0) {
+            releaseResources();
+            throw std::runtime_error("HairSimulator: Failed to generate OpenGL VBO. OpenGL Error: " + std::string(reinterpret_cast<const char*>(glewGetErrorString(glErr))));
+        }
+
+        glBindBuffer(GL_ARRAY_BUFFER, m_vboId);
+        glBufferData(GL_ARRAY_BUFFER, vbo_byte_size, nullptr, GL_DYNAMIC_DRAW);
+        glErr = glGetError();
+        if (glErr != GL_NO_ERROR) {
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            releaseResources();
+            throw std::runtime_error("HairSimulator: Failed to allocate OpenGL VBO data (glBufferData). OpenGL Error: " + std::string(reinterpret_cast<const char*>(glewGetErrorString(glErr))));
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        err = cudaGraphicsGLRegisterBuffer(&m_vboCudaResource, m_vboId, cudaGraphicsRegisterFlagsWriteDiscard);
+        if (err != cudaSuccess) {
+            releaseResources();
+            throw std::runtime_error("HairSimulator: Failed to register VBO with CUDA: " + std::string(cudaGetErrorString(err)));
+        }
+    }
+    return true; // Successfully initialized
 }
 
-void HairSimulator::create_and_populate_vbo() {
-    if (gpu_data_.num_total_particles == 0) {
-        std::cout << "HairSimulator: No particles to process. Skipping VBO creation." << std::endl;
+float* HairSimulator::mapVboForWriting() {
+    if (!m_useOpenGLInterop || !m_vboCudaResource || m_simData.num_total_particles == 0) {
+        return nullptr;
+    }
+
+    cudaError_t cudaErr = cudaGraphicsMapResources(1, &m_vboCudaResource, 0);
+    if (cudaErr != cudaSuccess) {
+        std::cerr << "HairSimulator: Failed to map VBO resource for CUDA: " << cudaGetErrorString(cudaErr) << std::endl;
+        return nullptr;
+    }
+
+    float* d_vbo_ptr = nullptr;
+    size_t mapped_vbo_buffer_size;
+    cudaErr = cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&d_vbo_ptr), &mapped_vbo_buffer_size, m_vboCudaResource);
+    if (cudaErr != cudaSuccess || d_vbo_ptr == nullptr) {
+        cudaGraphicsUnmapResources(1, &m_vboCudaResource, 0); // Attempt to unmap before returning
+        std::cerr << "HairSimulator: Failed to get mapped VBO pointer from CUDA: " << cudaGetErrorString(cudaErr) << std::endl;
+        return nullptr;
+    }
+
+    size_t expected_vbo_byte_size = m_simData.num_total_particles * 3 * sizeof(float);
+    if (mapped_vbo_buffer_size < expected_vbo_byte_size) {
+        cudaGraphicsUnmapResources(1, &m_vboCudaResource, 0);
+        std::cerr << "HairSimulator: Mapped VBO buffer size (" << mapped_vbo_buffer_size
+                  << ") is smaller than expected (" << expected_vbo_byte_size << ")." << std::endl;
+        return nullptr;
+    }
+    return d_vbo_ptr;
+}
+
+void HairSimulator::unmapVbo() {
+    if (!m_useOpenGLInterop || !m_vboCudaResource) {
         return;
     }
-    if (!gpu_data_.d_posX || !gpu_data_.d_posY || !gpu_data_.d_posZ) {
-         throw std::runtime_error("HairSimulator: Base particle position data (d_posX,Y,Z) not on GPU. Cannot create VBO.");
-    }
-
-    unmap_and_delete_vbo(); // Clean up any existing VBO
-
-    cudaError_t cudaErr;
-    GLenum glErr;
-    size_t vbo_byte_size = gpu_data_.num_total_particles * 3 * sizeof(float);
-
-    // 1. Create OpenGL VBO
-    glGenBuffers(1, &gpu_data_.vbo_id);
-    glErr = glGetError();
-    if (glErr != GL_NO_ERROR || gpu_data_.vbo_id == 0) {
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Failed to generate OpenGL VBO. OpenGL Error: " + std::string(reinterpret_cast<const char*>(glewGetErrorString(glErr))));
-    }
-
-    glBindBuffer(GL_ARRAY_BUFFER, gpu_data_.vbo_id);
-    glBufferData(GL_ARRAY_BUFFER, vbo_byte_size, nullptr, GL_DYNAMIC_DRAW); // Allocate space, data from CUDA
-    glErr = glGetError();
-    if (glErr != GL_NO_ERROR) {
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Failed to allocate OpenGL VBO data (glBufferData). OpenGL Error: " + std::string(reinterpret_cast<const char*>(glewGetErrorString(glErr))));
-    }
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    // 2. Register VBO with CUDA
-    cudaErr = cudaGraphicsGLRegisterBuffer(&gpu_data_.vbo_cuda_resource, gpu_data_.vbo_id, cudaGraphicsRegisterFlagsWriteDiscard);
+    cudaError_t cudaErr = cudaGraphicsUnmapResources(1, &m_vboCudaResource, 0);
     if (cudaErr != cudaSuccess) {
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Failed to register VBO with CUDA: " + std::string(cudaGetErrorString(cudaErr)));
+        // This can be a critical error if data was being written, but for now, just log it.
+        std::cerr << "HairSimulator: Warning - Failed to unmap VBO resource: " << cudaGetErrorString(cudaErr) << std::endl;
     }
-
-    // 3. Map VBO for CUDA access
-    cudaErr = cudaGraphicsMapResources(1, &gpu_data_.vbo_cuda_resource, 0); // Default stream
-    if (cudaErr != cudaSuccess) {
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Failed to map VBO resource for CUDA: " + std::string(cudaGetErrorString(cudaErr)));
-    }
-
-    // 4. Get device pointer to mapped VBO memory
-    size_t mapped_vbo_buffer_size;
-    cudaErr = cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&gpu_data_.d_vbo_buffer_ptr), &mapped_vbo_buffer_size, gpu_data_.vbo_cuda_resource);
-    if (cudaErr != cudaSuccess || gpu_data_.d_vbo_buffer_ptr == nullptr) {
-        cudaGraphicsUnmapResources(1, &gpu_data_.vbo_cuda_resource, 0); // Attempt unmap
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Failed to get mapped VBO pointer from CUDA: " + std::string(cudaGetErrorString(cudaErr)));
-    }
-    
-    if (mapped_vbo_buffer_size < vbo_byte_size) {
-        cudaGraphicsUnmapResources(1, &gpu_data_.vbo_cuda_resource, 0);
-        unmap_and_delete_vbo();
-        throw std::runtime_error("HairSimulator: Mapped VBO buffer size (" + std::to_string(mapped_vbo_buffer_size) +
-                                 ") is smaller than expected (" + std::to_string(vbo_byte_size) + ").");
-    }
-
-    // 5. Launch CUDA kernel to populate VBO
-    std::cout << "HairSimulator: Launching kernel to populate VBO ID: " << gpu_data_.vbo_id
-              << " with " << gpu_data_.num_total_particles << " particles." << std::endl;
-    
-    launch_convert_pos_to_vbo_kernel(this->get_gpu_data(), gpu_data_.d_vbo_buffer_ptr);
-    // Kernel itself should check for errors and synchronize.
-
-    // 6. Unmap VBO, making it available to OpenGL
-    cudaErr = cudaGraphicsUnmapResources(1, &gpu_data_.vbo_cuda_resource, 0);
-    if (cudaErr != cudaSuccess) {
-        unmap_and_delete_vbo(); 
-        throw std::runtime_error("HairSimulator: Failed to unmap VBO resource after kernel: " + std::string(cudaGetErrorString(cudaErr)));
-    }
-    gpu_data_.d_vbo_buffer_ptr = nullptr; // Pointer is no longer valid for CUDA
-
-    std::cout << "HairSimulator: VBO (ID: " << gpu_data_.vbo_id << ") populated successfully." << std::endl;
 }
 
-const HairGpuData& HairSimulator::get_gpu_data() const {
-    return gpu_data_;
+const HairGpuData& HairSimulator::getSimulationData() const {
+    return m_simData;
 }
+
+unsigned int HairSimulator::getVboId() const {
+    return m_vboId;
+}
+
+// Old methods to be removed or adapted:
+// void HairSimulator::upload_to_gpu(const std::vector<std::vector<float3>>& all_strands) { ... } // Replaced by initialize()
+// void HairSimulator::create_and_populate_vbo() { ... } // Integrated into initialize() and map/unmap logic
+// const HairGpuData& HairSimulator::get_gpu_data() const { ... } // Replaced by getSimulationData()
+// void HairSimulator::free_gpu_memory() { ... } // Replaced by releaseResources()
+// void HairSimulator::unmap_and_delete_vbo() { ... } // Replaced by unmapAndUnregisterVbo() and deleteGLVbo()
