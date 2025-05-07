@@ -153,7 +153,7 @@ int main() {
     }
 
     // --- Load Hair Data ---
-    Loader hairLoader;
+    HairLoader hairLoader;
     std::string dataPath = "../data/strands00001.data";
     std::vector<float3> allVertices;
     std::vector<GLuint> allIndices;

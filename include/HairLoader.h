@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-class Loader
+class HairLoader
 {
 public:
     void load_data(const std::string& fn);

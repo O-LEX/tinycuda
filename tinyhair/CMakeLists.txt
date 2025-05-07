@@ -33,18 +33,3 @@ target_link_libraries(tinyhair_test PRIVATE
     ${GLEW_LIBRARIES}
     glfw
 )
-
-# Set CUDA standard if needed
-set_target_properties(tinyhair_test PROPERTIES CUDA_STANDARD 11)
-
-# Copy shader files to the build directory next to the executable
-add_custom_command(TARGET tinyhair_test POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/shader $<TARGET_FILE_DIR:tinyhair_test>/shader
-    COMMENT "Copying shaders to build directory"
-)
-
-# Note: Shader files (vertex.glsl, fragment.glsl) are loaded relative to the executable's working directory
-# or via absolute paths. Ensure they are accessible at runtime.
-# For simplicity, we assume they are in a 'shader' subdirectory relative to the executable.
-# A more robust solution involves installing shaders or configuring paths.

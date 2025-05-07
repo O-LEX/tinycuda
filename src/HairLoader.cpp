@@ -4,7 +4,7 @@
 #include <string>
 #include <vector> // Include vector for clean_data
 
-void Loader::load_data(const std::string& fn)
+void HairLoader::load_data(const std::string& fn)
 {
     strands.clear(); // Clear existing data before loading new data
     std::ifstream ifs(fn, std::ios_base::binary);
@@ -40,7 +40,7 @@ void Loader::load_data(const std::string& fn)
     clean_data();
 }
 
-void Loader::clean_data()
+void HairLoader::clean_data()
 {
     // Takes only actual strands
     std::vector<std::vector<float3>> cleanStrands;
@@ -56,7 +56,7 @@ void Loader::clean_data()
     strands = cleanStrands;
 }
 
-void Loader::load(const std::string& fn)
+void HairLoader::load(const std::string& fn)
 {
     size_t dot = fn.find_last_of(".");
     std::string ext = "";
